@@ -18,9 +18,8 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v4
 
-    # Convert repo name to lowercase (IMPORTANT FIX)
     - name: Set lowercase repo name
-      run: echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}/my-k8s-app" >> $GITHUB_ENV
+      run: echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
 
     - name: Set Image Tag
       run: echo "IMAGE_TAG=${{ github.sha }}" >> $GITHUB_ENV
@@ -31,28 +30,27 @@ jobs:
     - name: Build Docker Image
       run: |
         docker build -t $IMAGE_NAME:$IMAGE_TAG .
-        docker tag $IMAGE_NAME:$IMAGE_TAG $IMAGE_NAME:latest
-
-    - name: Push Image
-      run: |
         docker push $IMAGE_NAME:$IMAGE_TAG
-        docker push $IMAGE_NAME:latest
 
-    - name: Install kubectl
-      uses: azure/setup-kubectl@v3
-
-    - name: Setup Kubeconfig
+    # Install kind
+    - name: Install kind
       run: |
-        echo "${{ secrets.KUBE_CONFIG_DATA }}" > kubeconfig
+        curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.22.0/kind-linux-amd64
+        chmod +x ./kind
+        sudo mv ./kind /usr/local/bin/kind
 
-    - name: Apply Deployment
-      run: |
-        kubectl apply -f k8s/deployment.yaml --kubeconfig=kubeconfig
+    # Create cluster
+    - name: Create Kubernetes Cluster
+      run: kind create cluster
 
-    - name: Update Image
-      run: |
-        kubectl set image deployment/flask-deployment flask-container=$IMAGE_NAME:$IMAGE_TAG --kubeconfig=kubeconfig
+    # Load image into kind
+    - name: Load Docker Image into Kind
+      run: kind load docker-image $IMAGE_NAME:$IMAGE_TAG
 
-    - name: Verify Rollout
+    - name: Deploy to Kubernetes
       run: |
-        kubectl rollout status deployment/flask-deployment --kubeconfig=kubeconfig
+        kubectl apply -f k8s/deployment.yaml
+        kubectl set image deployment/flask-deployment flask-container=$IMAGE_NAME:$IMAGE_TAG
+
+    - name: Verify Pods
+      run: kubectl get pods
